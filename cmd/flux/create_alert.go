@@ -23,7 +23,6 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	notificationv1 "github.com/fluxcd/notification-controller/api/v1"
@@ -127,7 +126,7 @@ func createAlertCmdRun(cmd *cobra.Command, args []string) error {
 	}
 
 	logger.Waitingf("waiting for Alert reconciliation")
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true,
+	if err := pollWithBackoff(ctx,
 		isStaticObjectReadyConditionFunc(kubeClient, namespacedName, &alert)); err != nil {
 		return err
 	}

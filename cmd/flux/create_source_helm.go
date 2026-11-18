@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -230,7 +229,7 @@ func createSourceHelmCmdRun(cmd *cobra.Command, args []string) error {
 		// HelmRepository type OCI is a static object.
 		readyConditionFunc = isStaticObjectReadyConditionFunc(kubeClient, namespacedName, helmRepository)
 	}
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true, readyConditionFunc); err != nil {
+	if err := pollWithBackoff(ctx, readyConditionFunc); err != nil {
 		return err
 	}
 	logger.Successf("HelmRepository source reconciliation completed")

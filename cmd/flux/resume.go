@@ -262,7 +262,7 @@ func (resume resumeCommand) reconcile(ctx context.Context, res resumable) reconc
 		readyConditionFunc = reconcileRequestHandledConditionFunc(resume.client, namespacedName, r, r.reconcileRequestedAt())
 	}
 
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true, readyConditionFunc); err != nil {
+	if err := pollWithBackoff(ctx, readyConditionFunc); err != nil {
 		return reconcileResponse{
 			resumable: res,
 			err:       err,

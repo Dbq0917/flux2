@@ -35,6 +35,7 @@ import (
 
 	runclient "github.com/fluxcd/pkg/runtime/client"
 
+	"github.com/fluxcd/flux2/v2/internal/retrier"
 	"github.com/fluxcd/flux2/v2/pkg/manifestgen/install"
 )
 
@@ -119,6 +120,10 @@ Command line utility for assembling Kubernetes CD pipelines the GitOps way.`,
 			return fmt.Errorf("namespace must be a valid DNS label: %q", ns)
 		}
 
+		if err := retryConfig().Validate(); err != nil {
+			return err
+		}
+
 		return nil
 	},
 }
@@ -131,6 +136,19 @@ type rootFlags struct {
 	pollInterval         time.Duration
 	nsFollowsKubeContext bool
 	defaults             install.Options
+	retry                retryFlags
+}
+
+// retryFlags holds the configurable exponential backoff parameters used by
+// the polling loops. They are additive flags: leaving them at their defaults
+// keeps the historical two second cadence while a resource is in progress and
+// only changes behaviour when requests start failing.
+type retryFlags struct {
+	initialInterval  time.Duration
+	maxInterval      time.Duration
+	factor           float64
+	jitterFactor     float64
+	maxRateLimitWait time.Duration
 }
 
 // RequestError is a custom error type that wraps an error returned by the flux api.
@@ -149,6 +167,16 @@ var kubeclientOptions = new(runclient.Options)
 
 func init() {
 	rootCmd.PersistentFlags().DurationVar(&rootArgs.timeout, "timeout", 5*time.Minute, "timeout for this operation")
+	rootCmd.PersistentFlags().DurationVar(&rootArgs.retry.initialInterval, "retry-initial-interval", retrier.DefaultInitialInterval,
+		"initial interval between status polling requests and base of the exponential backoff applied after transient failures")
+	rootCmd.PersistentFlags().DurationVar(&rootArgs.retry.maxInterval, "retry-max-interval", retrier.DefaultMaxInterval,
+		"maximum interval between status polling requests while backing off after transient failures")
+	rootCmd.PersistentFlags().Float64Var(&rootArgs.retry.factor, "retry-factor", retrier.DefaultFactor,
+		"multiplier applied to the polling interval after each consecutive transient failure")
+	rootCmd.PersistentFlags().Float64Var(&rootArgs.retry.jitterFactor, "retry-jitter-factor", retrier.DefaultJitterFactor,
+		"fraction by which polling intervals are randomized, between 0 and 1; 0 disables jitter")
+	rootCmd.PersistentFlags().DurationVar(&rootArgs.retry.maxRateLimitWait, "retry-max-rate-limit-wait", retrier.DefaultMaxRateLimitWait,
+		"maximum time to wait for a single API server rate limit Retry-After hint")
 	rootCmd.PersistentFlags().BoolVar(&rootArgs.verbose, "verbose", false, "print generated objects")
 	rootCmd.PersistentFlags().BoolVar(&rootArgs.nsFollowsKubeContext, "ns-follows-kube-context", false,
 		"use the namespace from the kubeconfig context instead of the default flux-system namespace, can also be set via FLUX_NS_FOLLOWS_KUBE_CONTEXT env var")

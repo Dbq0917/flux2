@@ -139,7 +139,7 @@ func (reconcile reconcileCommand) reconcile(name string) error {
 
 	lastHandledReconcileAt := reconcile.object.lastHandledReconcileRequest()
 	logger.Waitingf("waiting for %s reconciliation", reconcile.kind)
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true,
+	if err := pollWithBackoff(ctx,
 		reconciliationHandled(kubeClient, namespacedName, reconcile.object, lastHandledReconcileAt)); err != nil {
 		return err
 	}

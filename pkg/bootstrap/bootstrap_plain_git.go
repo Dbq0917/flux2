@@ -32,7 +32,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/api/konfig"
@@ -418,7 +417,7 @@ func (b *PlainGitBootstrapper) ReportKustomizationHealth(ctx context.Context, op
 	k := &kustomizev1.Kustomization{
 		Kind: kustomizev1.KustomizationKind,
 	}
-	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true,
+	if err := pollHealthWithBackoff(ctx, pollInterval, timeout, b.logger,
 		objectReconciled(b.kube, objKey, k, expectRevision)); err != nil {
 		// If the poll timed out, we want to log the ready condition message as
 		// that likely contains the reason
@@ -449,7 +448,7 @@ func (b *PlainGitBootstrapper) ReportGitRepoHealth(ctx context.Context, options 
 		Kind:       sourcev1.GitRepositoryKind,
 		APIVersion: sourcev1.GroupVersion.String(),
 	}
-	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true,
+	if err := pollHealthWithBackoff(ctx, pollInterval, timeout, b.logger,
 		objectReconciled(b.kube, objKey, g, expectRevision)); err != nil {
 		// If the poll timed out, we want to log the ready condition message as
 		// that likely contains the reason

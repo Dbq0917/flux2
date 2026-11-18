@@ -26,7 +26,6 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -131,7 +130,7 @@ func (names apiType) upsertAndWait(object upsertWaitable, mutate func() error) e
 	}
 
 	logger.Waitingf("waiting for %s reconciliation", names.kind)
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true,
+	if err := pollWithBackoff(ctx,
 		isObjectReadyConditionFunc(kubeClient, namespacedName, object.asClientObject())); err != nil {
 		return err
 	}

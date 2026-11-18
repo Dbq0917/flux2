@@ -8,7 +8,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/fluxcd/pkg/apis/meta"
 
@@ -121,7 +120,7 @@ func (reconcile reconcileWithSourceCommand) reconcile(name string, sources sourc
 	logger.Successf("%s annotated", reconcile.kind)
 
 	logger.Waitingf("waiting for %s reconciliation", reconcile.kind)
-	if err := wait.PollUntilContextTimeout(ctx, rootArgs.pollInterval, rootArgs.timeout, true,
+	if err := pollWithBackoff(ctx,
 		reconciliationHandled(kubeClient, namespacedName, reconcile.object, lastHandledReconcileAt)); err != nil {
 		return err
 	}
