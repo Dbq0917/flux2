@@ -245,7 +245,7 @@ func Test_objectReconciled(t *testing.T) {
 			},
 		},
 		{
-			name: "Kustomization - status with false ready condition",
+			name: "Kustomization - false ready condition while progressing is not a failure",
 			obj: &kustomizev1.Kustomization{
 				Kind:       kustomizev1.KustomizationKind,
 				APIVersion: kustomizev1.GroupVersion.String(),
@@ -261,7 +261,53 @@ func Test_objectReconciled(t *testing.T) {
 			},
 			statuses: []updateStatus{
 				{
+					expectedErr:  false,
+					expectedBool: false,
+				},
+			},
+		},
+		{
+			name: "Kustomization - stalled condition is a terminal unhealthy state",
+			obj: &kustomizev1.Kustomization{
+				Kind:       kustomizev1.KustomizationKind,
+				APIVersion: kustomizev1.GroupVersion.String(),
+				Name:       "flux-system",
+				Namespace:  "flux-system",
+				Generation: 1,
+				Status: kustomizev1.KustomizationStatus{
+					ObservedGeneration: 1,
+					Conditions: []metav1.Condition{
+						{Type: meta.StalledCondition, Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: meta.ReconciliationFailedReason, Message: "exhausted retries"},
+						{Type: meta.ReadyCondition, Status: metav1.ConditionFalse, ObservedGeneration: 1, Reason: meta.ReconciliationFailedReason, Message: "exhausted retries"},
+					},
+				},
+			},
+			statuses: []updateStatus{
+				{
 					expectedErr:  true,
+					expectedBool: false,
+				},
+			},
+		},
+		{
+			name: "Kustomization - reconciling condition with false ready is progressing",
+			obj: &kustomizev1.Kustomization{
+				Kind:       kustomizev1.KustomizationKind,
+				APIVersion: kustomizev1.GroupVersion.String(),
+				Name:       "flux-system",
+				Namespace:  "flux-system",
+				Generation: 1,
+				Status: kustomizev1.KustomizationStatus{
+					ObservedGeneration: 1,
+					Conditions: []metav1.Condition{
+						{Type: meta.ReconcilingCondition, Status: metav1.ConditionTrue, ObservedGeneration: 1, Reason: meta.ProgressingReason, Message: "waiting for workload rollout"},
+						{Type: meta.ReadyCondition, Status: metav1.ConditionFalse, ObservedGeneration: 1, Reason: meta.ProgressingReason, Message: "waiting for workload rollout"},
+					},
+				},
+			},
+			statuses: []updateStatus{
+				{
+					expectedErr:  false,
 					expectedBool: false,
 				},
 			},
@@ -369,7 +415,9 @@ func Test_objectReconciled(t *testing.T) {
 							},
 						}
 					},
-					expectedErr: true,
+					// A false Ready condition without Stalled is still in
+					// progress: transient errors must not abort the wait.
+					expectedErr: false,
 				},
 				{
 					// updated to a different revision
@@ -421,7 +469,7 @@ func Test_objectReconciled(t *testing.T) {
 					g.Expect(kubeClient.Update(context.TODO(), cloneObj)).To(Succeed())
 				}
 
-				waitFunc := objectReconciled(kubeClient, client.ObjectKeyFromObject(tt.obj), tt.obj, expectedRev)
+				waitFunc, _ := objectReconciled(kubeClient, client.ObjectKeyFromObject(tt.obj), tt.obj, expectedRev)
 				got, err := waitFunc(context.TODO())
 				g.Expect(err != nil).To(Equal(updates.expectedErr), "unexpected error: %v, for: %v", err, tt.obj)
 				g.Expect(got).To(Equal(updates.expectedBool))

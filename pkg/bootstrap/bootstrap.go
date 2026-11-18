@@ -25,7 +25,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
-	"github.com/fluxcd/pkg/apis/meta"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1b2 "github.com/fluxcd/source-controller/api/v1beta2"
 
@@ -217,7 +215,8 @@ type objectWithConditions interface {
 	GetConditions() []metav1.Condition
 }
 
-func objectReconciled(kube client.Client, objKey client.ObjectKey, clientObject objectWithConditions, expectRevision string) wait.ConditionWithContextFunc {
+func objectReconciled(kube client.Client, objKey client.ObjectKey, clientObject objectWithConditions, expectRevision string) (wait.ConditionWithContextFunc, *healthRecorder) {
+	recorder := newHealthRecorder(clientObject.GetObjectKind().GroupVersionKind().Kind, objKey.String())
 	return func(ctx context.Context) (bool, error) {
 		// for some reason, TypeMeta gets unset after kube.Get so we want to store the GVK and set it after
 		// ref https://github.com/kubernetes-sigs/controller-runtime/issues/1517#issuecomment-844703142
@@ -240,25 +239,38 @@ func objectReconciled(kube client.Client, objKey client.ObjectKey, clientObject 
 
 		// Confirm the state we are observing is for the current generation
 		if generation, ok, _ := unstructured.NestedInt64(obj, "status", "observedGeneration"); ok && generation != clientObject.GetGeneration() {
+			recorder.Observe(healthStateProgressing, "LatestGenerationNotObserved",
+				fmt.Sprintf("generation is %d, but latest observed generation is %d", clientObject.GetGeneration(), generation))
 			return false, nil
 		}
 
-		// Confirm the resource is healthy
-		if c := apimeta.FindStatusCondition(clientObject.GetConditions(), meta.ReadyCondition); c != nil {
-			switch c.Status {
-			case metav1.ConditionTrue:
-				// Confirm the given revision has been attempted by the controller
-				hasRev, err := hasRevision(kind, obj, expectRevision)
-				if err != nil {
-					return false, err
-				}
-				return hasRev, nil
-			case metav1.ConditionFalse:
-				return false, errors.New(c.Message)
+		// Distinguish "not ready yet" from "broken". A resource that is still
+		// starting up or retrying a transient error is Progressing and must not
+		// be treated as a failure. Only an explicit Stalled condition is a
+		// terminal failure; otherwise the poll keeps running until its timeout.
+		state := assessHealth(clientObject.GetConditions())
+		reason, message := readyConditionMessage(clientObject.GetConditions())
+		recorder.Observe(state, reason, message)
+
+		switch state {
+		case healthStateUnhealthy:
+			return false, fmt.Errorf("%s '%s' is unhealthy: %s", kind, objKey.String(), message)
+		case healthStateHealthy:
+			// Confirm the given revision has been attempted by the controller
+			hasRev, err := hasRevision(kind, obj, expectRevision)
+			if err != nil {
+				return false, err
 			}
+			if !hasRev {
+				return false, nil
+			}
+			return true, nil
 		}
+
+		// Progressing: the resource is not ready yet, but nothing proves it is
+		// broken. Keep polling until it becomes healthy or the timeout elapses.
 		return false, nil
-	}
+	}, recorder
 }
 
 // hasRevision checks that the reconciled revision (for Kustomization this is `.status.lastAttemptedRevision`

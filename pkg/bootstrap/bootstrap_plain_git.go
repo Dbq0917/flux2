@@ -418,8 +418,9 @@ func (b *PlainGitBootstrapper) ReportKustomizationHealth(ctx context.Context, op
 	k := &kustomizev1.Kustomization{
 		Kind: kustomizev1.KustomizationKind,
 	}
-	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true,
-		objectReconciled(b.kube, objKey, k, expectRevision)); err != nil {
+	conditionFunc, recorder := objectReconciled(b.kube, objKey, k, expectRevision)
+	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, conditionFunc); err != nil {
+		b.logger.Failuref("Kustomization health state transitions:\n%s", recorder.render())
 		// If the poll timed out, we want to log the ready condition message as
 		// that likely contains the reason
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -429,8 +430,9 @@ func (b *PlainGitBootstrapper) ReportKustomizationHealth(ctx context.Context, op
 			}
 		}
 		b.logger.Failuref(err.Error())
-		return fmt.Errorf("error while waiting for Kustomization to be ready: '%s'", err)
+		return fmt.Errorf("error while waiting for Kustomization to be ready: %w\nhealth state transitions:\n%s", err, recorder.render())
 	}
+	b.logger.Actionf("Kustomization health state transitions:\n%s", recorder.render())
 	b.logger.Successf("Kustomization reconciled successfully")
 	return nil
 }
@@ -449,8 +451,9 @@ func (b *PlainGitBootstrapper) ReportGitRepoHealth(ctx context.Context, options 
 		Kind:       sourcev1.GitRepositoryKind,
 		APIVersion: sourcev1.GroupVersion.String(),
 	}
-	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true,
-		objectReconciled(b.kube, objKey, g, expectRevision)); err != nil {
+	conditionFunc, recorder := objectReconciled(b.kube, objKey, g, expectRevision)
+	if err := wait.PollUntilContextTimeout(ctx, pollInterval, timeout, true, conditionFunc); err != nil {
+		b.logger.Failuref("GitRepository health state transitions:\n%s", recorder.render())
 		// If the poll timed out, we want to log the ready condition message as
 		// that likely contains the reason
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -460,8 +463,9 @@ func (b *PlainGitBootstrapper) ReportGitRepoHealth(ctx context.Context, options 
 			}
 		}
 		b.logger.Failuref(err.Error())
-		return fmt.Errorf("error while waiting for GitRepository to be ready: '%s'", err)
+		return fmt.Errorf("error while waiting for GitRepository to be ready: %w\nhealth state transitions:\n%s", err, recorder.render())
 	}
+	b.logger.Actionf("GitRepository health state transitions:\n%s", recorder.render())
 	b.logger.Successf("GitRepository reconciled successfully")
 	return nil
 }
